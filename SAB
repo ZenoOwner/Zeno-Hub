@@ -1,0 +1,665 @@
+-- SAB Script
+pcall(function() game:GetService("CoreGui"):FindFirstChild("ZenoSAB"):Destroy() end)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local lp = Players.LocalPlayer
+local TextChatService = game:GetService("TextChatService")
+local VIM = game:GetService("VirtualInputManager")
+local Camera = workspace.CurrentCamera
+
+local STEP1 = Vector3.new(-355.2, -7.3, 99.0)
+local STEP2 = Vector3.new(-357.6, -7.3, 61.8)
+local STEP3 = Vector3.new(-334.9, -7.3, 32.4)
+local POS_CARPET       = Vector3.new(-332, -7, 67)
+local POS_FLASH_TARGET = Vector3.new(-331.8, -4.7, 27.5)
+
+local function clickScreen(x, y)
+    VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+    task.wait(0.05)
+    VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+end
+
+local function sendCmd(cmd)
+    task.spawn(function()
+        pcall(function()
+            local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+            channel:SendAsync(cmd)
+        end)
+    end)
+end
+
+local function getNearestPlayer()
+    local nearest, dist = nil, math.huge
+    local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character then
+            local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
+            if tHRP then
+                local d = (tHRP.Position - hrp.Position).Magnitude
+                if d < dist then dist = d nearest = p end
+            end
+        end
+    end
+    return nearest
+end
+
+-- ============ SAB GUI ============
+local sg = Instance.new("ScreenGui")
+sg.Name = "ZenoSAB"
+sg.ResetOnSpawn = false
+sg.IgnoreGuiInset = true
+sg.Parent = game:GetService("CoreGui")
+
+local main = Instance.new("Frame", sg)
+main.Size = UDim2.fromOffset(180, 10)
+main.Position = UDim2.new(0.5,-90,0.5,-110)
+main.BackgroundColor3 = Color3.fromRGB(10,10,10)
+main.BorderSizePixel = 0
+main.Active = true
+main.AutomaticSize = Enum.AutomaticSize.Y
+Instance.new("UICorner", main).CornerRadius = UDim.new(0,10)
+Instance.new("UIStroke", main).Color = Color3.fromRGB(40,40,40)
+
+local dragging, dragStart, startPos = false, nil, nil
+main.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true dragStart = i.Position startPos = main.Position
+    end
+end)
+main.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+        local d = i.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
+    end
+end)
+main.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+local layout = Instance.new("UIListLayout", main)
+layout.Padding = UDim.new(0,5)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+local pad = Instance.new("UIPadding", main)
+pad.PaddingTop = UDim.new(0,10)
+pad.PaddingLeft = UDim.new(0,8)
+pad.PaddingRight = UDim.new(0,8)
+pad.PaddingBottom = UDim.new(0,10)
+
+local function makeBtn(text, color, locked)
+    local btn = Instance.new("TextButton", main)
+    btn.Size = UDim2.new(1,0,0,36)
+    btn.BackgroundColor3 = color or Color3.fromRGB(22,22,22)
+    btn.Text = text
+    btn.TextSize = 11
+    btn.Font = Enum.Font.GothamBold
+    btn.TextColor3 = locked and Color3.fromRGB(80,80,80) or Color3.new(1,1,1)
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = not locked
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,7)
+    local s = Instance.new("UIStroke", btn)
+    s.Color = locked and Color3.fromRGB(40,40,40) or Color3.fromRGB(65,65,65)
+    s.Thickness = 1
+    return btn
+end
+
+local flashBtn = makeBtn("⚡ FLASH TP ⚡", Color3.fromRGB(18,18,18), false)
+flashBtn.LayoutOrder = 1
+local cloneBtn = makeBtn("🪄 CLONE TP 🪄", Color3.fromRGB(18,18,18), false)
+cloneBtn.LayoutOrder = 2
+local blockBtn = makeBtn("🚫 BLOCK TARGET 🚫", Color3.fromRGB(22,22,22), false)
+blockBtn.LayoutOrder = 3
+local apBtn = makeBtn("✦ AP SPAM ✦", Color3.fromRGB(22,22,22), false)
+apBtn.LayoutOrder = 4
+
+local discordLbl = Instance.new("TextLabel", main)
+discordLbl.Size = UDim2.new(1,0,0,14)
+discordLbl.BackgroundTransparency = 1
+discordLbl.Text = "discord.gg/dC9qS5zK"
+discordLbl.TextSize = 8
+discordLbl.Font = Enum.Font.Gotham
+discordLbl.TextColor3 = Color3.fromRGB(80,80,80)
+discordLbl.TextXAlignment = Enum.TextXAlignment.Center
+discordLbl.LayoutOrder = 5
+
+local function findTool(keyword)
+    for _, t in ipairs(lp.Backpack:GetChildren()) do
+        if t:IsA("Tool") and t.Name:lower():find(keyword) then return t end
+    end
+    local char = lp.Character
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find(keyword) then return t end
+        end
+    end
+    return nil
+end
+
+local function stickTP(hrp, pos)
+    for i = 1, 6 do
+        hrp.CFrame = CFrame.new(pos)
+        task.wait(0.05)
+    end
+end
+
+-- FLASH TP
+flashBtn.MouseButton1Click:Connect(function()
+    local char = lp.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    flashBtn.AutoButtonColor = false
+    flashBtn.Text = "⚡ Running..."
+    flashBtn.BackgroundColor3 = Color3.fromRGB(80,50,0)
+    local oldCamType = Camera.CameraType
+    task.spawn(function()
+        pcall(function()
+            hrp.CFrame = CFrame.new(POS_CARPET)
+            task.wait(0.05)
+            local carpet = findTool("carpet") or findTool("flying") or findTool("fly")
+            if carpet then
+                hum:EquipTool(carpet)
+                local t0 = tick()
+                repeat task.wait(0.02) until char:FindFirstChildWhichIsA("Tool") or tick()-t0 > 0.8
+                pcall(function() carpet:Activate() end)
+                task.wait(0.15)
+            end
+            local flash = findTool("flash")
+            if not flash then
+                flashBtn.Text = "⚠️ No Flash tool"
+                flashBtn.BackgroundColor3 = Color3.fromRGB(18,18,18)
+                flashBtn.AutoButtonColor = true
+                task.delay(2, function() flashBtn.Text = "⚡ FLASH TP ⚡" end)
+                Camera.CameraType = oldCamType
+                return
+            end
+            hum:EquipTool(flash)
+            local t1 = tick()
+            repeat task.wait(0.02) until char:FindFirstChild(flash.Name) or tick()-t1 > 1
+            hrp.CFrame = CFrame.new(POS_CARPET, Vector3.new(POS_FLASH_TARGET.X, POS_CARPET.Y, POS_FLASH_TARGET.Z))
+            local direction = (POS_FLASH_TARGET - POS_CARPET).Unit
+            Camera.CameraType = Enum.CameraType.Scriptable
+            Camera.CFrame = CFrame.new(POS_CARPET + (-direction * 8 + Vector3.new(0,4,0)), POS_FLASH_TARGET)
+            task.wait(0.06)
+            local vp = Camera.ViewportSize
+            local cx, cy = math.floor(vp.X/2), math.floor(vp.Y/2)
+            VIM:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+            task.wait(0.05)
+            VIM:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+            task.wait(0.1)
+        end)
+        Camera.CameraType = oldCamType
+        flashBtn.Text = "⚡ FLASH TP ⚡"
+        flashBtn.BackgroundColor3 = Color3.fromRGB(18,18,18)
+        flashBtn.AutoButtonColor = true
+    end)
+end)
+
+-- CLONE TP
+cloneBtn.MouseButton1Click:Connect(function()
+    local char = lp.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    cloneBtn.AutoButtonColor = false
+    cloneBtn.Text = "⚡ Running..."
+    cloneBtn.BackgroundColor3 = Color3.fromRGB(0,50,80)
+    local carpet = findTool("carpet") or findTool("flying") or findTool("fly")
+    local cloner = findTool("clone") or findTool("quantum")
+    if not cloner then
+        cloneBtn.Text = "⚠️ Cloner not in bag"
+        cloneBtn.BackgroundColor3 = Color3.fromRGB(18,18,18)
+        cloneBtn.AutoButtonColor = true
+        task.delay(2, function() cloneBtn.Text = "🪄 CLONE TP 🪄" end)
+        return
+    end
+    if carpet then hum:EquipTool(carpet) task.wait(0.1) end
+    cloneBtn.Text = "🚪 Step 1..."
+    stickTP(hrp, STEP1)
+    cloneBtn.Text = "🚪 Step 2..."
+    stickTP(hrp, STEP2)
+    cloneBtn.Text = "📍 Enemy base..."
+    stickTP(hrp, STEP3)
+    hum:UnequipTools()
+    hum:EquipTool(cloner)
+    task.wait(0.15)
+    cloneBtn.Text = "📍 Placing..."
+    pcall(function() cloner:Activate() end)
+    task.wait(0.3)
+    cloneBtn.Text = "🔄 Swapping..."
+    local vp = workspace.CurrentCamera.ViewportSize
+    for i = 1, 3 do
+        pcall(function() clickScreen(vp.X * 0.52, vp.Y * 0.57) end)
+        task.wait(0.2)
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local parent = obj.Parent
+            if parent:IsA("BasePart") and (parent.Position - hrp.Position).Magnitude < 15 then
+                pcall(function() fireproximityprompt(obj) end)
+            end
+        end
+    end
+    cloneBtn.Text = "✅ Done!"
+    cloneBtn.BackgroundColor3 = Color3.fromRGB(0,100,0)
+    task.delay(2, function()
+        cloneBtn.Text = "🪄 CLONE TP 🪄"
+        cloneBtn.BackgroundColor3 = Color3.fromRGB(18,18,18)
+        cloneBtn.AutoButtonColor = true
+    end)
+end)
+
+-- BLOCK
+blockBtn.MouseButton1Click:Connect(function()
+    local target = getNearestPlayer()
+    if not target then
+        blockBtn.Text = "⚠️ No players near"
+        task.delay(1.5, function() blockBtn.Text = "🚫 BLOCK TARGET 🚫" end)
+        return
+    end
+    blockBtn.Text = "🚫 Blocking "..target.Name.."..."
+    blockBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+    blockBtn.AutoButtonColor = false
+    pcall(function() game:GetService("StarterGui"):SetCore("PromptBlockPlayer", target) end)
+    task.delay(2, function()
+        blockBtn.Text = "🚫 BLOCK TARGET 🚫"
+        blockBtn.BackgroundColor3 = Color3.fromRGB(22,22,22)
+        blockBtn.AutoButtonColor = true
+    end)
+end)
+
+-- AP SPAM
+local COMMANDS = {"rocket","balloon","inverse","tiny","jumpscare","morph","nightvision"}
+
+local function fireBtn(btn)
+    pcall(function() for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end)
+    pcall(function() for _, c in pairs(getconnections(btn.Activated)) do c:Fire() end end)
+end
+
+local function findAdminPanel()
+    return lp:WaitForChild("PlayerGui"):FindFirstChild("AdminPanel")
+end
+
+local function getPlayerBtn(adminPanel, target)
+    for _, obj in ipairs(adminPanel:GetDescendants()) do
+        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+            local txt = ""
+            if obj:IsA("TextButton") then txt = obj.Text
+            else for _, child in ipairs(obj:GetDescendants()) do if child:IsA("TextLabel") then txt = child.Text break end end end
+            if txt == target.Name or txt == target.DisplayName then return obj end
+        end
+    end
+    return nil
+end
+
+apBtn.MouseButton1Click:Connect(function()
+    local target = getNearestPlayer()
+    if not target then
+        apBtn.Text = "⚠️ No players near"
+        task.delay(1.5, function() apBtn.Text = "✦ AP SPAM ✦" end)
+        return
+    end
+    apBtn.Text = "⚡ Spamming..."
+    apBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+    apBtn.AutoButtonColor = false
+    task.spawn(function()
+        local adminPanel = findAdminPanel()
+        if adminPanel then
+            for _, cmd in ipairs(COMMANDS) do
+                local playerBtn = getPlayerBtn(adminPanel, target)
+                if playerBtn then fireBtn(playerBtn) task.wait(0.05) end
+                for _, obj in ipairs(adminPanel:GetDescendants()) do
+                    if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                        local txt = ""
+                        if obj:IsA("TextButton") then txt = obj.Text:lower()
+                        else for _, child in ipairs(obj:GetDescendants()) do if child:IsA("TextLabel") then txt = child.Text:lower() break end end end
+                        if txt:find(cmd) then fireBtn(obj) task.wait(0.05) break end
+                    end
+                end
+                task.wait(0.05)
+            end
+            task.wait(2)
+            local playerBtn = getPlayerBtn(adminPanel, target)
+            if playerBtn then fireBtn(playerBtn) task.wait(0.05) end
+            for _, obj in ipairs(adminPanel:GetDescendants()) do
+                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                    local txt = ""
+                    if obj:IsA("TextButton") then txt = obj.Text:lower()
+                    else for _, child in ipairs(obj:GetDescendants()) do if child:IsA("TextLabel") then txt = child.Text:lower() break end end end
+                    if txt:find("jail") then fireBtn(obj) break end
+                end
+            end
+        else
+            local name = target.Name
+            sendCmd(";rocket "..name) sendCmd(";inverse "..name) sendCmd(";tiny "..name)
+            sendCmd(";jumpscare "..name) sendCmd(";morph "..name) sendCmd(";balloon "..name)
+            task.delay(2, function() sendCmd(";jail "..name) end)
+        end
+        apBtn.Text = "✦ AP SPAM ✦"
+        apBtn.BackgroundColor3 = Color3.fromRGB(22,22,22)
+        apBtn.AutoButtonColor = true
+    end)
+end)
+
+-- ============ AUTO STEALER (always on, silent, no GUI) ============
+local function getInternalTable()
+    local Packages = ReplicatedStorage:FindFirstChild("Packages")
+    if not Packages then return nil end
+    local SynchronizerModule = Packages:FindFirstChild("Synchronizer")
+    if not SynchronizerModule then return nil end
+    local success, synchronizer = pcall(require, SynchronizerModule)
+    if not success or not synchronizer then return nil end
+    local GetMethod = synchronizer.Get
+    if type(GetMethod) ~= "function" then return nil end
+    for i = 1, 5 do
+        local ok, upvalue = pcall(getupvalue, GetMethod, i)
+        if ok and type(upvalue) == "table" then
+            if upvalue.___private or upvalue.___channels or upvalue.___data then return upvalue end
+            for k, v in pairs(upvalue) do
+                if type(k) == "string" and k:match("^Plot_") or type(v) == "table" then return upvalue end
+            end
+        end
+    end
+    local ok, env = pcall(getfenv, GetMethod)
+    if ok and env and env.self then return env.self end
+    return nil
+end
+
+local SynchronizerInternal = { _cache = {}, _dataTable = nil }
+task.spawn(function()
+    local attempts = 0
+    while attempts < 10 and not SynchronizerInternal._dataTable do
+        SynchronizerInternal._dataTable = getInternalTable()
+        if not SynchronizerInternal._dataTable then task.wait(1) attempts += 1 end
+    end
+end)
+
+local function stealthGet(plotName)
+    if not plotName or type(plotName) ~= "string" then return nil end
+    if SynchronizerInternal._cache[plotName] == false then return nil end
+    if SynchronizerInternal._dataTable then
+        local keys = {plotName,"Plot_"..plotName,"Plot"..plotName,plotName.."_Channel","Channel_"..plotName}
+        for _, key in ipairs(keys) do
+            if SynchronizerInternal._dataTable[key] then
+                SynchronizerInternal._cache[plotName] = SynchronizerInternal._dataTable[key]
+                return SynchronizerInternal._dataTable[key]
+            end
+        end
+        for k, v in pairs(SynchronizerInternal._dataTable) do
+            if type(k) == "string" and (k == plotName or k:find(plotName, 1, true)) then
+                if type(v) == "table" then
+                    SynchronizerInternal._cache[plotName] = v
+                    return v
+                end
+            end
+        end
+    end
+    SynchronizerInternal._cache[plotName] = false
+    return nil
+end
+
+local function stealthGetProperty(channel, property)
+    if not channel or type(channel) ~= "table" then return nil end
+    if channel[property] then return channel[property] end
+    if type(channel.Get) == "function" then
+        local ok, result = pcall(channel.Get, channel, property)
+        if ok then return result end
+    end
+    local altNames = {
+        Owner = {"owner","Owner","plotOwner","PlotOwner"},
+        AnimalList = {"animalList","AnimalList","animals","Animals","pets"}
+    }
+    if altNames[property] then
+        for _, alt in ipairs(altNames[property]) do
+            if channel[alt] then return channel[alt] end
+        end
+    end
+    return nil
+end
+
+local allAnimalsCache = {}
+local InternalStealCache = {}
+local PromptMemoryCache = {}
+local isCurrentlyStealing = false
+
+local Datas = ReplicatedStorage:WaitForChild("Datas")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Utils  = ReplicatedStorage:WaitForChild("Utils")
+local AnimalsData, AnimalsShared, NumberUtils
+
+task.spawn(function()
+    for i = 1, 10 do
+        local ok1, d = pcall(require, Datas:WaitForChild("Animals"))
+        local ok2, s = pcall(require, Shared:WaitForChild("Animals"))
+        local ok3, u = pcall(require, Utils:WaitForChild("NumberUtils"))
+        if ok1 and d then AnimalsData = d end
+        if ok2 and s then AnimalsShared = s end
+        if ok3 and u then NumberUtils = u end
+        if AnimalsData and AnimalsShared and NumberUtils then break end
+        task.wait(0.5)
+    end
+end)
+
+local function isMyBaseAnimal(animalData)
+    if not animalData or not animalData.plot then return false end
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then return false end
+    local plot = plots:FindFirstChild(animalData.plot)
+    if not plot then return false end
+    local channel = stealthGet(plot.Name)
+    if channel then
+        local owner = stealthGetProperty(channel, "Owner")
+        if owner then
+            if typeof(owner) == "Instance" and owner:IsA("Player") then return owner.UserId == lp.UserId end
+            if typeof(owner) == "table" and owner.UserId then return owner.UserId == lp.UserId end
+            if typeof(owner) == "Instance" then return owner == lp end
+        end
+    end
+    local sign = plot:FindFirstChild("PlotSign")
+    if sign then
+        local yourBase = sign:FindFirstChild("YourBase")
+        if yourBase and yourBase:IsA("BillboardGui") then return yourBase.Enabled == true end
+    end
+    return false
+end
+
+local function findProximityPromptForAnimal(animalData)
+    if not animalData then return nil end
+    local cached = PromptMemoryCache[animalData.uid]
+    if cached and cached.Parent then return cached end
+    local plot = workspace.Plots:FindFirstChild(animalData.plot)
+    if not plot then return nil end
+    local podiums = plot:FindFirstChild("AnimalPodiums")
+    if not podiums then return nil end
+    local podium = podiums:FindFirstChild(animalData.slot)
+    if not podium then return nil end
+    local base = podium:FindFirstChild("Base")
+    if not base then return nil end
+    local spawn = base:FindFirstChild("Spawn")
+    if not spawn then return nil end
+    local attach = spawn:FindFirstChild("PromptAttachment")
+    if not attach then return nil end
+    for _, p in ipairs(attach:GetChildren()) do
+        if p:IsA("ProximityPrompt") then
+            PromptMemoryCache[animalData.uid] = p
+            return p
+        end
+    end
+    return nil
+end
+
+local function buildStealCallbacks(prompt)
+    if InternalStealCache[prompt] then return end
+    local data = { holdCallbacks = {}, triggerCallbacks = {}, ready = true }
+    local ok1, conns1 = pcall(getconnections, prompt.PromptButtonHoldBegan)
+    if ok1 and type(conns1) == "table" then
+        for _, conn in ipairs(conns1) do
+            if type(conn.Function) == "function" then table.insert(data.holdCallbacks, conn.Function) end
+        end
+    end
+    local ok2, conns2 = pcall(getconnections, prompt.Triggered)
+    if ok2 and type(conns2) == "table" then
+        for _, conn in ipairs(conns2) do
+            if type(conn.Function) == "function" then table.insert(data.triggerCallbacks, conn.Function) end
+        end
+    end
+    if #data.holdCallbacks > 0 or #data.triggerCallbacks > 0 then
+        InternalStealCache[prompt] = data
+    end
+end
+
+local function runCallbackList(list)
+    for _, fn in ipairs(list) do task.spawn(fn) end
+end
+
+local function executeInternalStealAsync(prompt)
+    local data = InternalStealCache[prompt]
+    if not data or not data.ready then return false end
+    data.ready = false
+    isCurrentlyStealing = true
+    local startTime = tick()
+    local stealDuration = 0.6
+    task.spawn(function()
+        if #data.holdCallbacks > 0 then runCallbackList(data.holdCallbacks) end
+        while tick() - startTime < stealDuration do task.wait(0.01) end
+        if #data.triggerCallbacks > 0 then runCallbackList(data.triggerCallbacks) end
+        task.wait()
+        data.ready = true
+        isCurrentlyStealing = false
+    end)
+    return true
+end
+
+local function attemptSteal(prompt)
+    if not prompt or not prompt.Parent then return false end
+    buildStealCallbacks(prompt)
+    if not InternalStealCache[prompt] then return false end
+    return executeInternalStealAsync(prompt)
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        for uid, prompt in pairs(PromptMemoryCache) do
+            if prompt and prompt.Parent then buildStealCallbacks(prompt) end
+        end
+    end
+end)
+
+local plotChannels = {}
+local lastAnimalData = {}
+
+local function getAnimalHash(animalList)
+    if not animalList then return "" end
+    local hash = ""
+    for slot, data in pairs(animalList) do
+        if type(data) == "table" then hash = hash..tostring(slot)..tostring(data.Index)..tostring(data.Mutation) end
+    end
+    return hash
+end
+
+local function scanSinglePlot(plot)
+    pcall(function()
+        local plotUID = plot.Name
+        local channel = stealthGet(plotUID)
+        if not channel then return end
+        local animalList = stealthGetProperty(channel, "AnimalList")
+        local currentHash = getAnimalHash(animalList)
+        if lastAnimalData[plotUID] == currentHash then return end
+        lastAnimalData[plotUID] = currentHash
+        for i = #allAnimalsCache, 1, -1 do
+            if allAnimalsCache[i].plot == plot.Name then table.remove(allAnimalsCache, i) end
+        end
+        local owner = stealthGetProperty(channel, "Owner")
+        if not owner or not Players:FindFirstChild(owner.Name) then return end
+        local ownerName = owner and owner.Name or "Unknown"
+        if not animalList then return end
+        for slot, animalData in pairs(animalList) do
+            if type(animalData) == "table" then
+                local animalName = animalData.Index
+                local animalInfo = AnimalsData and AnimalsData[animalName]
+                if not animalInfo then continue end
+                local mutation = animalData.Mutation or "None"
+                local traits = (animalData.Traits and #animalData.Traits > 0) and table.concat(animalData.Traits, ", ") or "None"
+                local genValue = AnimalsShared and AnimalsShared:GetGeneration(animalName, animalData.Mutation, animalData.Traits, nil) or 0
+                local genText = "$"..(NumberUtils and NumberUtils:ToString(genValue) or tostring(genValue)).."/s"
+                table.insert(allAnimalsCache, {
+                    name = animalInfo.DisplayName or animalName,
+                    genText = genText, genValue = genValue,
+                    mutation = mutation, traits = traits,
+                    owner = ownerName, plot = plot.Name,
+                    slot = tostring(slot),
+                    uid = plot.Name.."_"..tostring(slot),
+                })
+            end
+        end
+        table.sort(allAnimalsCache, function(a, b) return a.genValue > b.genValue end)
+    end)
+end
+
+local function setupPlotListener(plot)
+    if plotChannels[plot.Name] then return end
+    local channel, retries = nil, 0
+    while not channel and retries < 3 do
+        channel = stealthGet(plot.Name)
+        if not channel then retries += 1 task.wait(0.3) end
+    end
+    if not channel then return end
+    plotChannels[plot.Name] = true
+    scanSinglePlot(plot)
+    plot.DescendantAdded:Connect(function() task.wait(0.05) scanSinglePlot(plot) end)
+    plot.DescendantRemoving:Connect(function() task.wait(0.05) scanSinglePlot(plot) end)
+    task.spawn(function()
+        while plot.Parent and plotChannels[plot.Name] do
+            task.wait(2)
+            scanSinglePlot(plot)
+        end
+    end)
+end
+
+local function initializePlotScanner()
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then
+        for i = 1, 30 do
+            plots = workspace:FindFirstChild("Plots")
+            if plots then break end
+            task.wait(0.5)
+        end
+        if not plots then return end
+    end
+    for _, plot in ipairs(plots:GetChildren()) do task.spawn(setupPlotListener, plot) end
+    plots.ChildAdded:Connect(function(plot) task.wait(0.2) task.spawn(setupPlotListener, plot) end)
+    plots.ChildRemoved:Connect(function(plot)
+        plotChannels[plot.Name] = nil
+        lastAnimalData[plot.Name] = nil
+        for i = #allAnimalsCache, 1, -1 do
+            if allAnimalsCache[i].plot == plot.Name then table.remove(allAnimalsCache, i) end
+        end
+    end)
+end
+
+-- always on from execution, no toggle ever
+task.spawn(function()
+    while not AnimalsData or not AnimalsShared or not NumberUtils do task.wait(0.5) end
+    initializePlotScanner()
+    task.wait(1)
+    -- original loop structure from source
+    while task.wait(0.1) do
+        if #allAnimalsCache == 0 then continue end
+        local targetAnimal = nil
+        for _, animalData in ipairs(allAnimalsCache) do
+            if not isMyBaseAnimal(animalData) then
+                targetAnimal = animalData
+                break
+            end
+        end
+        if not targetAnimal then continue end
+        local prompt = PromptMemoryCache[targetAnimal.uid]
+        if not prompt or not prompt.Parent then
+            prompt = findProximityPromptForAnimal(targetAnimal)
+        end
+        if prompt then attemptSteal(prompt) end
+    end
+end)
